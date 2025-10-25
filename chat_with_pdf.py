@@ -214,24 +214,11 @@ if uploaded_files:
                 st.session_state["vectorstore"] = vectordb
                 # keep embedding for potential temporary indexes
                 st.session_state["embedding"] = embedding
-                # Clear chat history (so old answers from previous index are removed).
-                # If you prefer to keep history, set this to False.
-                clear_history_on_reindex = True
-                if clear_history_on_reindex:
-                    st.session_state["history"] = []
-                    st.session_state["history"].append({"role": "assistant", "content": "Index updated. You can now ask questions about the newly uploaded documents."})
+                # Only notify about index update when new files are uploaded
             except Exception as e:
                 st.error(f"Failed to build vectorstore: {e}")
 
     st.success(f"Indexed {len(st.session_state.get('docs', []))} chunks from {len({d.metadata.get('source') for d in st.session_state.get('docs', [])})} file(s) (added {added}, replaced {replaced})")
-
-    # Show indexed filenames and allow user to select which documents to include in retrieval
-    indexed_sources = sorted({d.metadata.get("source") for d in st.session_state.get("docs", []) if d.metadata.get("source")})
-    if indexed_sources:
-            selected = st.multiselect("Documents to include in search (choose none to use all)", options=indexed_sources, default=indexed_sources)
-            st.session_state["selected_sources"] = selected
-    else:
-            st.session_state["selected_sources"] = []
 
 if "history" not in st.session_state:
     st.session_state["history"] = []
@@ -255,24 +242,8 @@ def retrieve_topk(question: str, k: int = 4):
     if not st.session_state.get("vectorstore"):
         return []
     try:
-        selected = st.session_state.get("selected_sources") or []
-        # if no selection or selection includes all sources, use the main vectorstore
-        all_sources = sorted({d.metadata.get("source") for d in st.session_state.get("docs", []) if d.metadata.get("source")})
-        if not selected or set(selected) == set(all_sources):
-            return st.session_state["vectorstore"].similarity_search(question, k=k)
-
-        # otherwise, build a temporary vectorstore from the selected docs only
-        subset = [d for d in st.session_state.get("docs", []) if d.metadata.get("source") in set(selected)]
-        if not subset:
-            return []
-
-        # Use stored embedding if available
-        embedding = st.session_state.get("embedding") if st.session_state.get("embedding") else OpenAIEmbeddings(model="openai.text-embedding-3-large")
-        try:
-            temp_vs = Chroma.from_documents(documents=subset, embedding=embedding)
-            return temp_vs.similarity_search(question, k=k)
-        except Exception:
-            return []
+        # Always use the main vectorstore which contains all uploaded files.
+        return st.session_state["vectorstore"].similarity_search(question, k=k)
     except Exception:
         # Best-effort fallback
         return []
